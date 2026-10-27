@@ -1,0 +1,7 @@
+**
+!package.json
+!package-lock.json
+!playwright.config.ts
+!vite.config.ts
+!e2e/
+!e2e/Dockerfile

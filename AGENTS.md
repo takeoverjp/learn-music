@@ -43,6 +43,6 @@ Node.jsは`.node-version`の24系を使用します。初回は`npm ci`、開発
 
 変更に対応するテストを実行し、コード変更の統合時には`npm run typecheck`、`npm run lint`、`npm run test`、`npm run build`、`npm run test:e2e`で確認します。`build`も型チェックを実行します。監視は`npm run test:watch`、E2E調査は`npm run test:e2e:ui`です。
 
-E2Eの準備は`npx playwright install --with-deps chromium webkit`です。E2Eは生成済みdistをpreviewで配信するので、ソース変更後はビルドしてから実行します。PlaywrightのwebServer内で再ビルドしません。14コードの楽譜画像比較は固定Linux Desktop Chromium専用です。画像更新は構成音・臨時記号・加線の目視確認を伴わせ、別OSの基準画像で置き換えないでください。基準画像生成や自動比較の成功だけを目視確認完了として報告しません。モバイルWebKitのエミュレーションと実機Safariの検証は区別します。
+E2Eは起動済みのDockerを使い、`npm run test:e2e`からローカル・CI共通の固定Linux/amd64コンテナで実行します。Playwright更新時はlockfileと`e2e/Dockerfile`のバージョン・digestを揃えてください。生成済みdistを読み取り専用で渡してpreviewで配信するので、ソース変更後はビルドしてから実行します。PlaywrightのwebServer内で再ビルドしません。14コードの楽譜画像比較と基準更新は共通コンテナ経由に限定します。更新コマンドは`npm run test:e2e -- --project=visual-chromium-linux --update-snapshots`です。画像更新は構成音・臨時記号・加線の目視確認を伴わせ、別環境の基準画像で置き換えないでください。基準画像生成や自動比較の成功だけを目視確認完了として報告しません。ホスト上の操作テスト用UIだけは`npx playwright install --with-deps chromium webkit`で準備します。モバイルWebKitのエミュレーションと実機Safariの検証は区別します。
 
 配信設定の変更はYAML／JSONの構文とactionの入力を確認し、PRが検証のみであること、全チェック成功後の同一distを配信すること、main SHA確認・workflow全体の直列化・deploy限定OIDC権限を保ちます。Vite previewではSWAルールを保証できません。公開後の確認とローカル検証結果を区別して報告してください。

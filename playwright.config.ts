@@ -2,11 +2,12 @@ import { defineConfig, devices } from '@playwright/test'
 
 export default defineConfig({
   testDir: './e2e',
+  outputDir: './test-results/playwright',
   fullyParallel: true,
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 1 : 0,
   workers: 2,
-  reporter: [['list'], ['html', { open: 'never' }]],
+  reporter: [['list'], ['html', { open: 'never', outputFolder: './playwright-report/html' }]],
   use: {
     baseURL: 'http://127.0.0.1:4173',
     screenshot: 'only-on-failure',

@@ -70,28 +70,29 @@ VexFlow・React等のJavaScript依存ライセンスは、Viteの`build.license`
 | `npm run test:watch` | Vitestの監視実行 |
 | `npm run build` | 型チェック後にViteで`dist/`を生成 |
 | `npm run preview` | 生成済み`dist/`のローカル配信 |
-| `npm run test:e2e` | Playwright E2E |
-| `npm run test:e2e:ui` | Playwrightの調査用UI |
+| `npm run test:e2e` | ローカル・CI共通の固定Docker環境でPlaywright E2E |
+| `npm run test:e2e:ui` | ホスト上のPlaywright調査用UI（操作テストのみ） |
 
-E2Eの初回実行前に、固定バージョンのPlaywright（1.64.1）に対応するブラウザを用意します。Linuxのシステム依存関係の導入では管理者権限が必要になる場合があります。
+E2Eには起動済みのDocker EngineまたはDocker Desktop（Linuxコンテナ）が必要です。Playwright 1.64.1の公式Ubuntu 24.04イメージをdigestで固定し、ローカル・CIともLinux/amd64で実行します。Node.js 24、ブラウザ、システムライブラリを共通化するため、ホストへのブラウザインストールは不要です。ARMホストではDockerのamd64エミュレーションが必要です。初回はイメージの取得とコンテナ内の`npm ci`を行い、以降はDockerのビルドキャッシュを使います。
 
 ```sh
-npx playwright install --with-deps chromium webkit
 npm run build
 npm run test:e2e
 ```
 
-E2EはVite previewで本番成果物を配信します。ソースを変更したら先に再ビルドしてください。Desktop Chromium、モバイルChromium、モバイルWebKitで回答・次問・成績・リロード・タッチ・キーボード・レスポンシブ表示を確認します。モバイルはエミュレーションであり、実機Safariの動作保証ではありません。
+E2Eは生成済み`dist/`を読み取り専用でコンテナに渡し、Vite previewで配信します。コンテナ内で再ビルドしないため、CIは検証したものと同じ`dist/`を配信します。ソースを変更したら先に再ビルドしてください。Desktop Chromium、モバイルChromium、モバイルWebKitで回答・次問・成績・リロード・タッチ・キーボード・レスポンシブ表示を確認します。モバイルはエミュレーションであり、実機Safariの動作保証ではありません。
+
+`npm run test:e2e -- --project=visual-chromium-linux`のようにPlaywrightの引数も渡せます。調査用UIだけはホスト上で動くため、事前に`npx playwright install --with-deps chromium webkit`を実行してください（Linuxでは管理者権限が必要な場合があります）。UIでは環境依存の画像比較を実行せず、操作テストだけを対象にします。
 
 テストトロフィーの考え方に沿い、静的チェックと利用者の操作に近い統合テストを土台にし、小さな純粋関数テストとブラウザE2Eを組み合わせます。音楽データと出題条件は独立した期待値・固定乱数で検証します。jsdomでSVG描画を代替しても、実ブラウザではVexFlowを実描画します。14コードの音符位置・臨時記号・加線は、LinuxのDesktop Chromium専用プロジェクトで楽譜領域のスクリーンショット基準画像と比較します。SVGが存在するだけでは正確な楽譜の検証になりません。基準画像を更新する際は構成音表と照合し、差分を確認してください。
 
-基準画像を意図的に更新する場合は、Linux上で次を実行し、全14コードを構成音表と照合してください。画像を生成できたことだけで正しい楽譜と判断せず、差分と音符・臨時記号・加線を確認します。
+基準画像を意図的に更新する場合も、必ず共通コンテナ経由で次を実行し、全14コードを構成音表と照合してください。画像を生成できたことだけで正しい楽譜と判断せず、差分と音符・臨時記号・加線を確認します。
 
 ```sh
-npx playwright test --project=visual-chromium-linux --update-snapshots
+npm run test:e2e -- --project=visual-chromium-linux --update-snapshots
 ```
 
-失敗時は`playwright-report/`と`test-results/`のレポート・trace・画像差分を調べます。`npx playwright show-report`でHTMLレポートを開けます。画像比較はOS、フォント、ブラウザに依存するため、Linux Chromium以外の画像で基準を上書きしないでください。
+失敗時はホストに出力される`playwright-report/html/`と`test-results/playwright/`のレポート・trace・画像差分を調べます。`npx playwright show-report playwright-report/html`でHTMLレポートを開けます。画像比較はOS、フォント、ブラウザに依存するため、共通コンテナ以外で基準を上書きしないでください。Playwright更新時は`package.json`・lockfileと`e2e/Dockerfile`のバージョン・digestを揃え、画像差分を確認してください。
 
 ### 初回実装の検証記録（2026-10-27）
 
