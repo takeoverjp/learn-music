@@ -2,57 +2,106 @@ name: Azure Static Web Apps CI/CD
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
   pull_request:
-    types: [opened, synchronize, reopened, closed]
-    branches:
-      - main
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches: [main]
+
+permissions:
+  contents: read
+
+# Serialize the entire run, not just deployment: test completion order is not commit order.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
-  build_and_deploy_job:
-    if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.action != 'closed')
-    runs-on: ubuntu-latest
-    name: Build and Deploy Job
-    permissions:
-       id-token: write
-       contents: read
+  checks:
+    name: Typecheck, lint, test, build and E2E
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      CI: "true"
+    outputs:
+      dist-artifact-id: ${{ steps.dist.outputs.artifact-id }}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v7
         with:
-          submodules: true
-          lfs: false
-      - name: Install OIDC Client from Core Package
-        run: npm install @actions/core@1.6.0 @actions/http-client
-      - name: Get Id Token
-        uses: actions/github-script@v6
-        id: idtoken
+          persist-credentials: false
+      - uses: actions/setup-node@v7
         with:
-           script: |
-               const coredemo = require('@actions/core')
-               return await coredemo.getIDToken()
-           result-encoding: string
-      - name: Build And Deploy
-        id: builddeploy
+          node-version-file: .node-version
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm run test
+      - run: npm run build
+      - run: npx playwright install --with-deps chromium webkit
+      - run: npm run test:e2e
+      - name: Preserve failure reports and traces
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-failure-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            playwright-report/
+            test-results/
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Preserve the browser-tested production build
+        id: dist
+        uses: actions/upload-artifact@v7
+        with:
+          name: dist-${{ github.run_id }}-${{ github.run_attempt }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
+
+  deploy:
+    name: Deploy tested main artifact
+    needs: checks
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Download this run's tested build
+        uses: actions/download-artifact@v8
+        with:
+          artifact-ids: ${{ needs.checks.outputs.dist-artifact-id }}
+          path: dist
+      - name: Verify deployment entry points
+        run: test -s dist/index.html && test -s dist/staticwebapp.config.json
+      - name: Check current main and obtain OIDC token
+        id: authorization
+        uses: actions/github-script@v9
+        with:
+          result-encoding: string
+          script: |
+            const { data } = await github.rest.git.getRef({
+              ...context.repo,
+              ref: 'heads/main',
+            });
+            const current = data.object.sha === context.sha;
+            core.setOutput('current-main', String(current));
+            if (!current) {
+              core.notice(`Skipping stale commit ${context.sha}; main is ${data.object.sha}.`);
+              return '';
+            }
+            return await core.getIDToken();
+      - name: Deploy without rebuilding
+        if: steps.authorization.outputs.current-main == 'true'
         uses: Azure/static-web-apps-deploy@v1
         with:
           azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN_GENTLE_SEA_07C4C7800 }}
-          action: "upload"
-          ###### Repository/Build Configurations - These values can be configured to match your app requirements. ######
-          # For more information regarding Static Web App workflow configurations, please visit: https://aka.ms/swaworkflowconfig
-          app_location: "/" # App source code path
-          api_location: "" # Api source code path - optional
-          output_location: "" # Built app content directory - optional
-          github_id_token: ${{ steps.idtoken.outputs.result }}
-          ###### End of Repository/Build Configurations ######
-
-  close_pull_request_job:
-    if: github.event_name == 'pull_request' && github.event.action == 'closed'
-    runs-on: ubuntu-latest
-    name: Close Pull Request Job
-    steps:
-      - name: Close Pull Request
-        id: closepullrequest
-        uses: Azure/static-web-apps-deploy@v1
-        with:
-          action: "close"
+          github_id_token: ${{ steps.authorization.outputs.result }}
+          action: upload
+          production_branch: main
+          app_location: dist
+          output_location: ""
+          api_location: ""
+          skip_app_build: true
+          skip_api_build: true
