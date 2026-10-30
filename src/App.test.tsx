@@ -4,17 +4,31 @@ import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
 import { ChordStaff } from './components/ChordStaff'
+import { MelodyStaff } from './components/MelodyStaff'
+import { playMelody } from './music/playMelody'
+import { createMelodyQuestion } from './quiz/melodyQuestions'
 import { createQuestion } from './quiz/questions'
 
 // jsdom cannot measure SVG text; real notation is covered in Playwright.
 vi.mock('./components/ChordStaff', () => ({ ChordStaff: vi.fn() }))
+vi.mock('./components/MelodyStaff', () => ({ MelodyStaff: vi.fn() }))
+vi.mock('./music/playMelody', () => ({ playMelody: vi.fn() }))
 
 beforeEach(() => {
   vi.mocked(ChordStaff).mockImplementation(() => <div role="img" aria-label="楽譜" />)
+  vi.mocked(MelodyStaff).mockImplementation(() => <div role="img" aria-label="メロディ楽譜" />)
+  vi.mocked(playMelody).mockResolvedValue({ durationMs: 60_000, stop: vi.fn() })
 })
 
 function mountQuiz() {
-  return render(<StrictMode><App initialQuestion={createQuestion(undefined, () => 0)} /></StrictMode>)
+  return render(
+    <StrictMode>
+      <App
+        initialQuestion={createQuestion(undefined, () => 0)}
+        initialMelodyQuestion={createMelodyQuestion(undefined, () => 0)}
+      />
+    </StrictMode>,
+  )
 }
 
 function expectScores(correct: number, answered: number) {
@@ -117,6 +131,38 @@ describe('quiz interaction', () => {
     expect(screen.getByRole('status')).toHaveAttribute('aria-atomic', 'true')
     await user.click(screen.getByRole('button', { name: 'Cm' }))
     expect(screen.getByRole('status')).toHaveTextContent('不正解')
+  })
+
+  it('switches to the melody quiz, plays the excerpt and scores an answer', async () => {
+    const user = userEvent.setup()
+    mountQuiz()
+    await user.click(screen.getByRole('button', { name: '名曲メロディ' }))
+    expect(screen.getByRole('heading', { name: 'この曲は？' })).toHaveFocus()
+    expect(screen.getByRole('img', { name: 'メロディ楽譜' })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: '▶ メロディを再生' }))
+    expect(playMelody).toHaveBeenCalledTimes(1)
+    expect(screen.getByRole('button', { name: '再生中…' })).toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: '再生中…' }))
+    expect(playMelody).toHaveBeenCalledTimes(1)
+
+    await user.click(screen.getByRole('button', {
+      name: '交響曲第9番「歓喜の歌」（ベートーヴェン）',
+    }))
+    expect(screen.getByRole('status')).toHaveTextContent('正解！')
+    expect(screen.getByRole('status')).toHaveTextContent('交響曲第9番「歓喜の歌」')
+    expectScores(1, 1)
+  })
+
+  it('keeps chord and melody scores separate when switching quiz types', async () => {
+    const user = userEvent.setup()
+    mountQuiz()
+    await user.click(screen.getByRole('button', { name: 'C' }))
+    expectScores(1, 1)
+    await user.click(screen.getByRole('button', { name: '名曲メロディ' }))
+    expectScores(0, 0)
+    await user.click(screen.getByRole('button', { name: 'コード' }))
+    expectScores(1, 1)
   })
 
   it('reports notation rendering failures explicitly and removes answer controls', () => {
